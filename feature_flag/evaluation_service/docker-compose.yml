@@ -1,0 +1,56 @@
+version: '3.9'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: evaluation_service_db
+    environment:
+      POSTGRES_DB: evaluation_service_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - evaluation_postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d evaluation_service_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  evaluation_service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: evaluation_service
+    command: >
+      sh -c "python manage.py migrate &&
+             python manage.py runserver 0.0.0.0:8003"
+    environment:
+      DJANGO_SETTINGS_MODULE: evaluation_service.settings.local
+      SECRET_KEY: dev-secret-key-evaluation-service-change-in-production
+      DEBUG: "True"
+      ALLOWED_HOSTS: localhost,127.0.0.1,0.0.0.0
+      DB_NAME: evaluation_service_db
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_HOST: db
+      DB_PORT: 5432
+      CORS_ALLOW_ALL_ORIGINS: "True"
+      FLAG_SERVICE_URL: http://flag_service:8002
+    ports:
+      - "8003:8003"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - .:/app
+    restart: unless-stopped
+
+volumes:
+  evaluation_postgres_data:
+
+networks:
+  default:
+    name: feature_flag_network
+    external: false

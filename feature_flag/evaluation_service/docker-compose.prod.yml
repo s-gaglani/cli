@@ -1,0 +1,62 @@
+version: '3.9'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: evaluation_service_db_prod
+    environment:
+      POSTGRES_DB: ${DB_NAME:-evaluation_service_db}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - evaluation_postgres_data_prod:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-evaluation_service_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: always
+
+  evaluation_service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: evaluation_service_prod
+    command: >
+      sh -c "python manage.py migrate --settings=evaluation_service.settings.production &&
+             gunicorn evaluation_service.wsgi:application
+             --bind 0.0.0.0:8003
+             --workers 4
+             --worker-class gthread
+             --threads 2
+             --timeout 120
+             --access-logfile -
+             --error-logfile -
+             --log-level info"
+    environment:
+      DJANGO_SETTINGS_MODULE: evaluation_service.settings.production
+      SECRET_KEY: ${SECRET_KEY}
+      DEBUG: "False"
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS}
+      DB_NAME: ${DB_NAME:-evaluation_service_db}
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_HOST: db
+      DB_PORT: 5432
+      CORS_ALLOW_ALL_ORIGINS: "False"
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
+      FLAG_SERVICE_URL: ${FLAG_SERVICE_URL:-http://flag_service:8002}
+    ports:
+      - "8003:8003"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: always
+
+volumes:
+  evaluation_postgres_data_prod:
+
+networks:
+  default:
+    name: feature_flag_network_prod
+    external: false

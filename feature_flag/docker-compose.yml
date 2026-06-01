@@ -1,0 +1,127 @@
+version: '3.9'
+
+services:
+
+  # ── Databases ──────────────────────────────────────────────────────────────
+
+  project_db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: project_service_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - project_db_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d project_service_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - feature_flag_network
+
+  flag_db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: flag_service_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - flag_db_data:/var/lib/postgresql/data
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d flag_service_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - feature_flag_network
+
+  evaluation_db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: evaluation_service_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - evaluation_db_data:/var/lib/postgresql/data
+    ports:
+      - "5435:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d evaluation_service_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - feature_flag_network
+
+  # ── Services ───────────────────────────────────────────────────────────────
+
+  project_service:
+    build: ./project_service
+    ports:
+      - "8001:8001"
+    env_file:
+      - ./project_service/.env
+    environment:
+      DB_HOST: project_db
+      DB_PORT: "5432"
+    depends_on:
+      project_db:
+        condition: service_healthy
+    volumes:
+      - ./project_service:/app
+    command: python manage.py runserver 0.0.0.0:8001
+    networks:
+      - feature_flag_network
+
+  flag_service:
+    build: ./flag_service
+    ports:
+      - "8002:8002"
+    env_file:
+      - ./flag_service/.env
+    environment:
+      DB_HOST: flag_db
+      DB_PORT: "5432"
+    depends_on:
+      flag_db:
+        condition: service_healthy
+    volumes:
+      - ./flag_service:/app
+    command: python manage.py runserver 0.0.0.0:8002
+    networks:
+      - feature_flag_network
+
+  evaluation_service:
+    build: ./evaluation_service
+    ports:
+      - "8003:8003"
+    env_file:
+      - ./evaluation_service/.env
+    environment:
+      DB_HOST: evaluation_db
+      DB_PORT: "5432"
+      FLAG_SERVICE_URL: http://flag_service:8002
+    depends_on:
+      evaluation_db:
+        condition: service_healthy
+      flag_service:
+        condition: service_started
+    volumes:
+      - ./evaluation_service:/app
+    command: python manage.py runserver 0.0.0.0:8003
+    networks:
+      - feature_flag_network
+
+networks:
+  feature_flag_network:
+    driver: bridge
+
+volumes:
+  project_db_data:
+  flag_db_data:
+  evaluation_db_data:
